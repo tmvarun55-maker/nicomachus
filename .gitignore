@@ -1,0 +1,10 @@
+data/index.sqlite3
+data/index.sqlite3-*
+data/memory.sqlite3
+data/logs/
+__pycache__/
+*.pyc
+data/memory.sqlite3-*
+data/*.sqlite3-wal
+data/*.sqlite3-shm
+data/settings.json

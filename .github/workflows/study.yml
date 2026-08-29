@@ -1,0 +1,69 @@
+# A free, always-on study schedule.
+#
+# GitHub Actions gives public repositories unlimited free minutes, so this is
+# the closest honest thing to "its own server that keeps learning": a machine
+# that is not yours, costs nothing, wakes up on a cron, reads, and commits what
+# it learned back to the repository.
+#
+# Setup:
+#   1. push this repo to GitHub
+#   2. Settings → Secrets and variables → Actions → New repository secret
+#      name: ANTHROPIC_API_KEY   (only needed for note distillation;
+#                                 harvesting and indexing run without it)
+#   3. Settings → Actions → General → Workflow permissions → Read and write
+
+name: study cycle
+
+on:
+  schedule:
+    - cron: "0 3 * * *"     # 03:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      topics:
+        description: "Specific topics to study (optional, space separated)"
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nicomachus-study
+  cancel-in-progress: false
+
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Seed questions on first run
+        run: python -m nicomachus seed
+
+      - name: Study
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m nicomachus study ${{ github.event.inputs.topics }}
+
+      - name: Status
+        run: python -m nicomachus status
+
+      - name: Commit what it learned
+        run: |
+          git config user.name  "nicomachus"
+          git config user.email "nicomachus@users.noreply.github.com"
+          git add corpus data topics
+          if git diff --staged --quiet; then
+            echo "nothing new this cycle"
+          else
+            git commit -m "study cycle $(date -u +%Y-%m-%d)"
+            git push
+          fi

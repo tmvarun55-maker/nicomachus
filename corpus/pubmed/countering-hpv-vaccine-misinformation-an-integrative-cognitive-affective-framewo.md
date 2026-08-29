@@ -1,0 +1,11 @@
+---
+title: Countering HPV Vaccine Misinformation: An Integrative Cognitive-Affective Framework for Theory-Driven Digital Health Education Interventions.
+author: 
+source: https://www.ncbi.nlm.nih.gov/pubmed/42631662
+licence: NCBI-abstract
+kind: secondary
+added: 2026-08-29
+---
+Countering HPV Vaccine Misinformation: An Integrative Cognitive-Affective Framework for Theory-Driven Digital Health Education Interventions.
+
+The spread of online misinformation about the human papillomavirus (HPV) vaccine undermines confidence in vaccination and contributes to persistent gaps in adolescent series initiation and completion. Existing digital health interventions often deliver more factual information, yet behavior change remains inconsistent, suggesting that effective education strategies must also address fear, distrust, reactance, and perceived social disapproval. This conceptual, theory-building paper develops an integrative cognitive-affective framework for designing digital tools, including conversational agents and tailored messaging platforms, that target cognitive and emotional determinants of HPV decisions. Using an integrative synthesis of established behavior change and health communication theories, the framework organizes constructs into a cognitive pathway (threat perception, efficacy beliefs, outcome expectations, and normative influence) and an affective and relational pathway (fear and concern, anger and reactance, empathy and altruistic motivation, trust, and perceived social presence), with emotional self-regulation capacity treated as a moderator. The framework proposes attitude and affective readiness as proximal mediators while allowing direct, reciprocal, and context-dependent relationships among constructs, intention, and behavior. The paper translates each construct into design principles for digital interventions and illustrates how they could be implemented and tested in conceptual chatbot-based encounters. This work contributes to health education scholarship by connecting established theory to contemporary digital health technologies for countering HPV vaccine misinformation. It offers guidance for building and evaluating emotionally intelligent, theory-informed interventions adaptable across clinical, school, and community settings.
