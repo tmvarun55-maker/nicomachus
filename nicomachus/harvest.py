@@ -40,6 +40,41 @@ _robots: dict[str, urllib.robotparser.RobotFileParser] = {}
 _robots_guard = threading.Lock()
 _store_guard = threading.Lock()
 
+# The memory DB is not committed, so on a fresh CI checkout `already_seen()`
+# knows nothing and every source gets re-fetched and re-written as slug-2,
+# slug-3, ... This scans the corpus on disk once and treats any source URL
+# already present there as seen — CI-safe, no binary DB in git.
+_disk_sources: set[str] | None = None
+_disk_guard = threading.Lock()
+
+
+def _norm(url: str) -> str:
+    return (url or "").strip().rstrip("/")
+
+
+def _load_disk_sources() -> set[str]:
+    global _disk_sources
+    with _disk_guard:
+        if _disk_sources is None:
+            found: set[str] = set()
+            for p in CORPUS_DIR.rglob("*.md"):
+                try:
+                    head = p.read_text(encoding="utf-8", errors="replace")[:600]
+                except OSError:
+                    continue
+                for line in head.splitlines():
+                    if line.startswith("source:"):
+                        found.add(_norm(line.split(":", 1)[1]))
+                        break
+            _disk_sources = found
+        return _disk_sources
+
+
+def seen(url: str) -> bool:
+    """Seen in memory, or already sitting in the corpus on disk."""
+    u = _norm(url)
+    return memory.already_seen(url) or u in _load_disk_sources()
+
 # Documented public APIs. robots.txt exists to keep crawlers off a site's HTML
 # and its expensive dynamic endpoints; these hosts publish an API precisely so
 # that programs use it instead of scraping, and govern it by their own terms of
@@ -185,9 +220,20 @@ def fetch_text(url: str, timeout: int = 30) -> str:
 
 def _store(subdir: str, slug: str, body: str, **meta) -> Path:
     safe = re.sub(r"[^a-z0-9\-_]+", "-", slug.lower()).strip("-")[:80] or "untitled"
-    # Claiming the filename must be atomic across worker threads, or two
-    # documents race to the same path and one silently overwrites the other.
+    src = _norm(meta.get("source", ""))
+
     with _store_guard:
+        # Same source already in the corpus -> return it, write nothing.
+        if src and src in _load_disk_sources():
+            for p in (CORPUS_DIR / subdir).glob(f"{safe}*.md"):
+                if _norm_source_of(p) == src:
+                    return p
+            for p in CORPUS_DIR.rglob("*.md"):
+                if _norm_source_of(p) == src:
+                    return p
+
+        # Claiming the filename must be atomic across worker threads, or two
+        # documents race to the same path and one silently overwrites the other.
         path = CORPUS_DIR / subdir / f"{safe}.md"
         n = 1
         while path.exists():
@@ -195,7 +241,19 @@ def _store(subdir: str, slug: str, body: str, **meta) -> Path:
             path = CORPUS_DIR / subdir / f"{safe}-{n}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
+        if src and _disk_sources is not None:
+            _disk_sources.add(src)
     return corpus.write(path, body, **meta)
+
+
+def _norm_source_of(p: Path) -> str:
+    try:
+        for line in p.read_text(encoding="utf-8", errors="replace")[:600].splitlines():
+            if line.startswith("source:"):
+                return _norm(line.split(":", 1)[1])
+    except OSError:
+        pass
+    return ""
 
 
 # --- Wikipedia (CC BY-SA) ----------------------------------------------
@@ -211,7 +269,7 @@ def wikipedia(title: str) -> Harvested | None:
     })
     url = f"{WIKI_API}?{q}"
     canonical = "https://en.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))
-    if memory.already_seen(canonical):
+    if seen(canonical):
         return None
 
     data = fetch_json(url)
@@ -255,7 +313,7 @@ def gutenberg(book: dict) -> Harvested | None:
          if k.startswith("text/plain") and not u.endswith(".zip")),
         None,
     )
-    if not txt_url or memory.already_seen(txt_url):
+    if not txt_url or seen(txt_url):
         return None
     if _host(txt_url) not in SETTINGS.allowed_domains:
         return None
@@ -295,7 +353,7 @@ def arxiv(query: str, limit: int = 8) -> list[Harvested]:
             m = re.search(rf"<{name}>(.*?)</{name}>", entry, re.S)
             return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
         link = tag("id")
-        if not link or memory.already_seen(link):
+        if not link or seen(link):
             continue
         title, summary = tag("title"), tag("summary")
         if len(summary) < 200:
@@ -319,7 +377,7 @@ def openalex(query: str, limit: int = 10) -> list[Harvested]:
     out: list[Harvested] = []
     for w in data.get("results", []):
         wid = w.get("id")
-        if not wid or memory.already_seen(wid):
+        if not wid or seen(wid):
             continue
         abstract = _deinvert(w.get("abstract_inverted_index"))
         if not abstract or len(abstract) < 200:
@@ -377,7 +435,7 @@ def pubmed(query: str, limit: int = 8) -> list[Harvested]:
         if not pmid_m:
             continue
         url = f"https://www.ncbi.nlm.nih.gov/pubmed/{pmid_m.group(1)}"
-        if memory.already_seen(url):
+        if seen(url):
             continue
         title = _strip(re.search(r"<ArticleTitle>(.*?)</ArticleTitle>", art, re.S))
         abstract = " ".join(
