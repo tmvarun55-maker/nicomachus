@@ -18,39 +18,29 @@ Generate a token: run `python -c "import secrets;print(secrets.token_urlsafe(32)
 
 ---
 
-## 1. Hugging Face Spaces  — free, no credit card, persistent
+## 1. Render  — free, no credit card
 
-Best fit for a personal always-on instance.
+Simplest no-card route. Sleeps after 15 min idle, ~50s to wake on next visit.
 
-1. Make an account at **huggingface.co** (free, email only).
-2. **New → Space**. Name it `nicomachus`. **SDK: Docker**. Visibility: Private.
-3. It gives you a git URL. Push this repo to it:
-   ```
-   git remote add hf https://huggingface.co/spaces/<your-username>/nicomachus
-   git push hf main
-   ```
-4. Space → **Settings → Variables and secrets** → add `NICOMACHUS_TOKEN`
-   (and `ANTHROPIC_API_KEY` if you have one).
-5. In the Space's `README.md`, make sure the top frontmatter has `app_port: 7860`
-   (the Dockerfile already exposes 7860). Add it if missing:
-   ```
-   ---
-   title: Nicomachus
-   sdk: docker
-   app_port: 7860
-   ---
-   ```
-6. It builds and comes up at `https://<your-username>-nicomachus.hf.space`.
-   Open it, enter the token.
+1. Account at **render.com** (sign in with GitHub is easiest).
+2. **New → Web Service** → connect the repo `tmvarun55-maker/nicomachus`.
+3. It detects the `Dockerfile`. Instance type: **Free**.
+4. **Environment** → add:
+   - `NICOMACHUS_TOKEN` = a long random string (the web-page password)
+   - `ANTHROPIC_API_KEY` = `sk-ant-...`  (optional)
+   - `PORT` = `10000`   (Render's expected port)
+5. **Create Web Service**. First build takes a few minutes.
+6. It serves at `https://nicomachus-XXXX.onrender.com`. Open it, enter the token.
 
-Free Spaces sleep after ~48h with no visitors and wake on the next request
-(a few seconds). Fine for personal use. The corpus is baked into the image,
-so every `git push hf main` — including pulling the nightly GitHub commits
-first — refreshes what it knows.
+Enable **Auto-Deploy** so every push to `main` — including the nightly study
+commits — rebuilds with the latest corpus.
+
+> Note: HuggingFace Spaces used to be the free pick, but Docker Spaces now
+> require a paid plan, so this is the free route instead.
 
 ---
 
-## 2. Fly.io  — always-on, needs a card on file (not charged within the free allowance)
+## 2. Fly.io  — always-on (no sleep), needs a card on file (not charged within the free allowance)
 
 1. Install flyctl: `iwr https://fly.io/install.ps1 -useb | iex`  (PowerShell)
 2. `fly auth signup`  (or `fly auth login`)
