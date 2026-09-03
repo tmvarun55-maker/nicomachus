@@ -16,9 +16,10 @@ COPY README.md .
 # Build the search index at image-build time so first request is fast.
 RUN python -m nicomachus index
 
-# Hugging Face Spaces expects 7860; Fly/Render inject $PORT and override this.
-ENV PORT=7860
-EXPOSE 7860
+# Render/Fly inject $PORT. Default to 10000 (Render's convention) so the
+# image also runs the same way locally with `docker run -p 10000:10000`.
+ENV PORT=10000
+EXPOSE 10000
 
 # NICOMACHUS_TOKEN must be set in the platform's secrets — the server refuses
 # a public bind without it. ANTHROPIC_API_KEY / GEMINI_API_KEY are optional
