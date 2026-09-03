@@ -31,6 +31,15 @@ Simplest no-card route. Sleeps after 15 min idle, ~50s to wake on next visit.
    - `PORT` = `10000`   (Render's expected port)
 5. **Create Web Service**. First build takes a few minutes.
 6. It serves at `https://nicomachus-XXXX.onrender.com`. Open it, enter the token.
+7. **Settings → Health Checks** → set the path to `/healthz` and save. Without
+   this, Render can't tell when the container is ready and traffic flaps
+   between the instance and a `no-server` edge response.
+
+> The default install no longer includes `google-genai` — it is heavy enough
+> to push a 512MB free instance into memory pressure (the symptom is ~50% of
+> requests returning `no-server` with nothing in the logs). If you want Gemini
+> instead of Claude, uncomment it in `requirements.txt` and use a paid
+> instance, or just set `ANTHROPIC_API_KEY`.
 
 Enable **Auto-Deploy** so every push to `main` — including the nightly study
 commits — rebuilds with the latest corpus.
