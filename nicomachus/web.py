@@ -13,8 +13,10 @@ are all on this machine; nothing here is meant to face a network.
 
 from __future__ import annotations
 
+import hmac
 import json
 import mimetypes
+import os
 import threading
 import traceback
 import uuid
@@ -29,6 +31,32 @@ from .config import CORPUS_DIR, SETTINGS, TOPICS_DIR
 from .index import Index, rebuild
 
 STATIC = Path(__file__).parent / "static"
+
+# When NICOMACHUS_TOKEN is set (any public deployment must set it), every
+# request needs it — as `Authorization: Bearer <token>`, a `nict` cookie, or
+# once through the login form. Unset means localhost-only single-user mode.
+TOKEN = os.environ.get("NICOMACHUS_TOKEN", "").strip()
+
+LOGIN_PAGE = """<!doctype html><meta charset=utf-8>
+<title>Nicomachus</title>
+<style>body{font:15px system-ui;background:#faf8f4;color:#1f1c17;
+display:grid;place-items:center;height:100vh;margin:0}
+@media(prefers-color-scheme:dark){body{background:#16150f;color:#e9e3d6}}
+form{display:flex;gap:8px;flex-direction:column;width:280px}
+h1{font:600 22px Georgia,serif;margin:0 0 4px}
+input,button{padding:10px 12px;border:1px solid #ccc;border-radius:8px;font:inherit}
+button{background:#7a5c2e;color:#fff;border:0;cursor:pointer}
+.e{color:#8a4b2a;font-size:13px;min-height:18px}</style>
+<form onsubmit="go(event)">
+<h1>Nicomachus</h1>
+<input id=t type=password placeholder="access token" autofocus autocomplete=current-password>
+<button>Enter</button><div class=e id=e></div></form>
+<script>
+async function go(ev){ev.preventDefault();
+ const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({token:document.getElementById('t').value})});
+ if(r.ok){location.href='/';}else{document.getElementById('e').textContent='Wrong token.';}}
+</script>"""
 
 _pool = ThreadPoolExecutor(max_workers=4)
 _jobs: dict[str, dict] = {}
@@ -218,6 +246,29 @@ class Handler(BaseHTTPRequestHandler):
         if self.server.verbose:  # type: ignore[attr-defined]
             super().log_message(fmt, *args)
 
+    # -- auth --
+    def _authed(self) -> bool:
+        if not TOKEN:
+            return True
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], TOKEN):
+            return True
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "nict" and hmac.compare_digest(v, TOKEN):
+                return True
+        return False
+
+    def _gate(self, route: str) -> bool:
+        """True if the request may proceed. Handles login + the login page."""
+        if self._authed() or route == "/api/login":
+            return True
+        if route in ("/", "/index.html"):
+            self._send(200, LOGIN_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        else:
+            self._json({"error": "unauthorized"}, 401)
+        return False
+
     # -- helpers --
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -257,6 +308,10 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = parse_qs(u.query)
         route = u.path
+        if route == "/healthz":
+            return self._json({"ok": True})
+        if not self._gate(route):
+            return
 
         try:
             if route in ("/", "/index.html"):
@@ -294,6 +349,23 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         route = urlparse(self.path).path
         body = self._body()
+        if route == "/api/login":
+            ok = bool(TOKEN) and hmac.compare_digest(
+                str(body.get("token", "")), TOKEN)
+            if ok:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header(
+                    "Set-Cookie",
+                    f"nict={TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000",
+                )
+                self.end_headers()
+                self.wfile.write(b'{"ok":true}')
+            else:
+                self._json({"error": "bad token"}, 401)
+            return
+        if not self._gate(route):
+            return
         try:
             if route == "/api/ask":
                 question = (body.get("question") or "").strip()
@@ -349,8 +421,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 500)
 
 
-def serve(host: str = "127.0.0.1", port: int = 8422, open_browser: bool = True,
-          verbose: bool = False) -> None:
+def serve(host: str | None = None, port: int | None = None,
+          open_browser: bool = True, verbose: bool = False) -> None:
+    # Hosting platforms inject PORT. A public bind (0.0.0.0) is only allowed
+    # with a token set; otherwise stay on localhost no matter what was asked.
+    port = int(os.environ.get("PORT") or port or 8422)
+    if host is None:
+        host = os.environ.get("HOST") or ("0.0.0.0" if TOKEN else "127.0.0.1")
+    if host != "127.0.0.1" and not TOKEN:
+        print("  refusing public bind without NICOMACHUS_TOKEN — using 127.0.0.1")
+        host = "127.0.0.1"
     httpd = ThreadingHTTPServer((host, port), Handler)
     httpd.verbose = verbose  # type: ignore[attr-defined]
     url = f"http://{host}:{port}/"

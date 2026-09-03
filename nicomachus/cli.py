@@ -179,7 +179,7 @@ def cmd_serve(args) -> int:
     from .web import serve
     print(BANNER)
     serve(host=args.host, port=args.port,
-          open_browser=not args.no_open, verbose=args.verbose)
+          open_browser=not args.no_open and not args.host, verbose=args.verbose)
     return 0
 
 
@@ -348,8 +348,10 @@ def build_parser() -> argparse.ArgumentParser:
     au.set_defaults(fn=cmd_autonomous)
 
     sv = sub.add_parser("serve", help="open the web interface")
-    sv.add_argument("--port", type=int, default=8422)
-    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=None,
+                    help="default 8422, or $PORT")
+    sv.add_argument("--host", default=None,
+                    help="default 127.0.0.1; 0.0.0.0 needs NICOMACHUS_TOKEN")
     sv.add_argument("--no-open", action="store_true",
                     help="don't launch a browser")
     sv.add_argument("-v", "--verbose", action="store_true",

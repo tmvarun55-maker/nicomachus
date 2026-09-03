@@ -1,0 +1,32 @@
+# fly.io deploy config.  Usage:
+#   fly launch --no-deploy      (creates the app, or edit `app` below)
+#   fly secrets set NICOMACHUS_TOKEN=your-long-random-string
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-...        # optional
+#   fly deploy
+#
+# The free allowance covers one always-on shared-cpu-1x/256MB machine.
+
+app = "nicomachus"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "get"
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
