@@ -96,7 +96,18 @@ providers [--use X]     show or switch model provider (auto|anthropic|gemini)
 
 ## Keeping it running
 
-**Windows** — a daily cycle via Task Scheduler:
+**As an always-on local server** (no terminal, launches at logon, restarts on crash):
+
+```
+powershell -ExecutionPolicy Bypass -File scripts\service.ps1 install
+```
+
+After that it is always at `http://localhost:8422` whenever you are logged in.
+Manage it with `scripts\service.ps1 status | restart | stop | uninstall`. The
+server runs hidden via a Startup-folder shortcut (no admin needed) and a
+supervisor loop (`serve-forever.ps1`) brings it back if it ever exits.
+
+**A daily study cycle** via Task Scheduler:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install_task.ps1
