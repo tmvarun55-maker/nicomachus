@@ -24,7 +24,7 @@ page. Everything also works from the command line.
 | **Knowledge base** | 16 hand-written reference notes: Aristotle (ethics, rhetoric, politics), epistemology, logic and fallacies, philosophy of mind, philosophy of science, psychology, social psychology, emotion, nonverbal behaviour, persuasion, manipulation, negotiation, decision and game theory, research methods — each with replication status attached |
 | **Corpus** | Public-domain primary texts, Wikipedia, OpenAlex, arXiv, PubMed — harvested, licence-tagged, deduplicated |
 | **Retrieval** | SQLite FTS5 + BM25, source-diversity capped, with a 95-concept alias map so "weakness of will" reaches passages filed under "akrasia", and a second hop through related concepts so answers connect traditions |
-| **Reasoning** | Claude Opus 5 **or** Google Gemini — whichever you have a key for |
+| **Reasoning** | Claude Opus 5 (SDK) **or** Google Gemini (REST, no package) — whichever you have a key for |
 | **Live research** | Web-grounded search through the model (Anthropic `web_search`/`web_fetch`, or Gemini Google Search grounding), written back into the corpus |
 | **Memory** | SQLite: what it has read, what it concluded, what it still wants to know |
 | **Self-direction** | Each cycle it distils notes and generates new questions; those questions decide what it reads next |
@@ -52,10 +52,10 @@ setx GEMINI_API_KEY "..."
 With both set it uses Anthropic; `nicomachus providers --use gemini` switches
 and remembers. `nicomachus providers` shows what's active.
 
-| | quality tier | fast tier (distillation) |
-|---|---|---|
-| anthropic | `claude-opus-5` | `claude-haiku-4-5` |
-| gemini | `gemini-3.7-flash` | `gemini-3.5-flash-lite` |
+| | quality tier | fast tier (distillation) | needs |
+|---|---|---|---|
+| anthropic | `claude-opus-5` | `claude-haiku-4-5` | `pip install anthropic` |
+| gemini | `gemini-3.7-flash` | `gemini-3.5-flash-lite` | none — plain REST |
 
 Edit `data/settings.json` to change any of these.
 

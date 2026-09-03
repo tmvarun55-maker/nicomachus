@@ -1,6 +1,8 @@
 """Model providers: Anthropic and Google Gemini, behind one interface.
 
-Each provider exposes three calls:
+Anthropic uses its SDK. Gemini talks to the REST API directly with urllib
+-- no google-genai (grpcio/protobuf) dependency, which matters on a 512MB
+host. Each provider exposes three calls:
 
     complete()  — grounded answering, the quality tier
     fast()      — the cheap/quick tier, for distillation and classification
@@ -14,7 +16,10 @@ configured, defaulting to Anthropic.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import urllib.error
+import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -153,101 +158,105 @@ def _anthropic_sources(msg) -> list[str]:
     return urls
 
 
-# --- Google Gemini ------------------------------------------------------
+# --- Google Gemini (REST, no SDK) ------------------------------------
+
+GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+
+
+def _gemini_key() -> str:
+    return (os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY") or "").strip()
+
 
 class GeminiProvider(Provider):
     name = "gemini"
 
-    def __init__(self) -> None:
-        self._client = None
-
     def available(self) -> bool:
-        if not _installed("google.genai"):
-            return False
-        return bool(os.environ.get("GEMINI_API_KEY")
-                    or os.environ.get("GOOGLE_API_KEY"))
+        # No package to install -- a key is all it needs.
+        return bool(_gemini_key())
 
-    @property
-    def client(self):
-        if self._client is None:
-            from google import genai
-            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            self._client = genai.Client(api_key=key)
-        return self._client
+    def _post(self, model: str, body: dict) -> dict:
+        url = f"{GEMINI_BASE}/models/{model}:generateContent?key={_gemini_key()}"
+        data = json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", "replace")[:500]
+            raise RuntimeError(f"Gemini API {e.code}: {detail}") from None
 
     def _call(self, system: str, prompt: str, *, model: str, max_tokens: int,
-              thinking_level: str | None, search: bool = False,
+              thinking: str | None, search: bool = False,
               json_mode: bool = False) -> Reply:
-        from google.genai import types
+        gen: dict = {"maxOutputTokens": max_tokens}
+        if thinking is not None:
+            # REST takes a token budget: 0 = off (fast), -1 = dynamic (deep).
+            gen["thinkingConfig"] = {"thinkingBudget": -1 if thinking == "high" else 0}
 
-        def build(with_thinking: bool):
-            cfg: dict = {
-                "system_instruction": system,
-                "max_output_tokens": max_tokens,
-            }
-            if search:
-                cfg["tools"] = [types.Tool(google_search=types.GoogleSearch())]
-            elif json_mode:
-                # Search grounding and forced JSON are mutually exclusive.
-                cfg["response_mime_type"] = "application/json"
-            if with_thinking and thinking_level:
-                cfg["thinking_config"] = types.ThinkingConfig(
-                    thinking_level=thinking_level
-                )
-            return types.GenerateContentConfig(**cfg)
+        body: dict = {
+            "systemInstruction": {"parts": [{"text": system}]},
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": gen,
+        }
+        if search:
+            body["tools"] = [{"google_search": {}}]
+        elif json_mode:
+            # forced JSON and search grounding are mutually exclusive
+            gen["responseMimeType"] = "application/json"
 
         try:
-            resp = self.client.models.generate_content(
-                model=model, contents=prompt, config=build(True)
-            )
-        except Exception as e:
-            # Not every model accepts an explicit thinking level; the request is
-            # still perfectly valid without one, so retry rather than fail.
-            if thinking_level and "thinking" in str(e).lower():
-                resp = self.client.models.generate_content(
-                    model=model, contents=prompt, config=build(False)
-                )
+            resp = self._post(model, body)
+        except RuntimeError as e:
+            # some models reject an explicit thinking budget; retry without it
+            if thinking is not None and "thinking" in str(e).lower():
+                gen.pop("thinkingConfig", None)
+                resp = self._post(model, body)
             else:
                 raise
 
-        usage = {}
-        if getattr(resp, "usage_metadata", None):
-            usage = {
-                "input": resp.usage_metadata.prompt_token_count or 0,
-                "output": resp.usage_metadata.candidates_token_count or 0,
-            }
+        cands = resp.get("candidates") or []
+        text = ""
+        if cands:
+            parts = (cands[0].get("content") or {}).get("parts") or []
+            text = "".join(p.get("text", "") for p in parts)
 
+        um = resp.get("usageMetadata") or {}
         return Reply(
-            text=resp.text or "",
+            text=text,
             provider=self.name,
             model=model,
             sources=_gemini_sources(resp),
-            usage=usage,
+            usage={"input": um.get("promptTokenCount", 0),
+                   "output": um.get("candidatesTokenCount", 0)},
         )
 
     def complete(self, system, prompt, *, max_tokens, json_mode=False) -> Reply:
         return self._call(system, prompt, model=SETTINGS.gemini_model,
                           max_tokens=max_tokens,
-                          thinking_level=SETTINGS.gemini_thinking,
-                          json_mode=json_mode)
+                          thinking=SETTINGS.gemini_thinking, json_mode=json_mode)
 
     def fast(self, system, prompt, *, max_tokens, json_mode=False) -> Reply:
         return self._call(system, prompt, model=SETTINGS.gemini_fast_model,
-                          max_tokens=max_tokens, thinking_level="low",
+                          max_tokens=max_tokens, thinking="low",
                           json_mode=json_mode)
 
     def research(self, system, prompt, *, max_tokens) -> Reply:
         return self._call(system, prompt, model=SETTINGS.gemini_model,
                           max_tokens=max_tokens,
-                          thinking_level=SETTINGS.gemini_thinking, search=True)
+                          thinking=SETTINGS.gemini_thinking, search=True)
 
 
-def _gemini_sources(resp) -> list[str]:
+def _gemini_sources(resp: dict) -> list[str]:
     urls: list[str] = []
-    for cand in (getattr(resp, "candidates", None) or []):
-        meta = getattr(cand, "grounding_metadata", None)
-        for chunk in (getattr(meta, "grounding_chunks", None) or []):
-            uri = getattr(getattr(chunk, "web", None), "uri", None)
+    for cand in (resp.get("candidates") or []):
+        meta = cand.get("groundingMetadata") or {}
+        for chunk in (meta.get("groundingChunks") or []):
+            uri = (chunk.get("web") or {}).get("uri")
             if uri and uri not in urls:
                 urls.append(uri)
     return urls

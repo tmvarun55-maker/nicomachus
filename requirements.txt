@@ -1,8 +1,5 @@
 anthropic>=1.2.0
 
-# google-genai is optional — only needed if you set GEMINI_API_KEY.
-# It is heavy (grpcio, protobuf) and pushes a 512MB free instance toward OOM,
-# so it is left out of the default install. To use Gemini instead of Claude:
-#   pip install "google-genai>=2.20.0"
-# and set GEMINI_API_KEY. providers.py detects it at runtime, no code change.
-# google-genai>=2.20.0
+# Gemini needs no package -- providers.py calls its REST API with urllib.
+# Just set GEMINI_API_KEY (or GOOGLE_API_KEY) and it is used automatically,
+# or `nicomachus providers --use gemini` to prefer it when both keys are set.
